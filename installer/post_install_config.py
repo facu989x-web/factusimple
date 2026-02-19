@@ -13,7 +13,7 @@ from db import init_db, set_setting
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Post-instalación: setea rutas y defaults kiosco")
-    ap.add_argument("--db-path", default="data/locutorio.sqlite")
+    ap.add_argument("--db-path", default="data/factusimple.sqlite")
     ap.add_argument("--install-dir", required=True)
     ap.add_argument("--openssl-rel", default=r"runtime\openssl\openssl.exe")
     ap.add_argument("--printer-name-contains", default="")
