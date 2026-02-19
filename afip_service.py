@@ -355,78 +355,77 @@ class AfipService:
 
         return AfipResult(cbte_nro=cbte_nro, cae=cae, cae_vto=cae_vto)
 
-        def emitir_factura_c(self, *, doc_tipo: int, doc_nro: str, total: float, items: list[dict]) -> AfipResult:
-            auth_xml = self._auth_xml()
+    def emitir_factura_c(self, *, doc_tipo: int, doc_nro: str, total: float, items: list[dict]) -> AfipResult:
+        auth_xml = self._auth_xml()
 
-            cbte_nro = self.get_next_cbte_nro(CBTE_TIPO_FACTURA_C)
-            cbte_fch = datetime.now().strftime("%Y%m%d")
-            imp_total = round(float(total), 2)
+        cbte_nro = self.get_next_cbte_nro(CBTE_TIPO_FACTURA_C)
+        cbte_fch = datetime.now().strftime("%Y%m%d")
+        imp_total = round(float(total), 2)
 
-            body = f"""
-    <FECAESolicitar xmlns="http://ar.gov.afip.dif.FEV1/">
-      {auth_xml}
-      <FeCAEReq>
-        <FeCabReq>
-          <CantReg>1</CantReg>
-          <PtoVta>{self.pv}</PtoVta>
-          <CbteTipo>{CBTE_TIPO_FACTURA_C}</CbteTipo>
-        </FeCabReq>
-        <FeDetReq>
-          <FECAEDetRequest>
-            <Concepto>1</Concepto>
-            <DocTipo>{int(doc_tipo)}</DocTipo>
-            <DocNro>{int(doc_nro)}</DocNro>
-            <CbteDesde>{cbte_nro}</CbteDesde>
-            <CbteHasta>{cbte_nro}</CbteHasta>
-            <CbteFch>{cbte_fch}</CbteFch>
+        body = f"""
+<FECAESolicitar xmlns="http://ar.gov.afip.dif.FEV1/">
+  {auth_xml}
+  <FeCAEReq>
+    <FeCabReq>
+      <CantReg>1</CantReg>
+      <PtoVta>{self.pv}</PtoVta>
+      <CbteTipo>{CBTE_TIPO_FACTURA_C}</CbteTipo>
+    </FeCabReq>
+    <FeDetReq>
+      <FECAEDetRequest>
+        <Concepto>1</Concepto>
+        <DocTipo>{int(doc_tipo)}</DocTipo>
+        <DocNro>{int(doc_nro)}</DocNro>
+        <CbteDesde>{cbte_nro}</CbteDesde>
+        <CbteHasta>{cbte_nro}</CbteHasta>
+        <CbteFch>{cbte_fch}</CbteFch>
 
-            <ImpTotal>{imp_total:.2f}</ImpTotal>
-            <ImpTotConc>0.00</ImpTotConc>
-            <ImpNeto>{imp_total:.2f}</ImpNeto>
-            <ImpOpEx>0.00</ImpOpEx>
-            <ImpIVA>0.00</ImpIVA>
-            <ImpTrib>0.00</ImpTrib>
+        <ImpTotal>{imp_total:.2f}</ImpTotal>
+        <ImpTotConc>0.00</ImpTotConc>
+        <ImpNeto>{imp_total:.2f}</ImpNeto>
+        <ImpOpEx>0.00</ImpOpEx>
+        <ImpIVA>0.00</ImpIVA>
+        <ImpTrib>0.00</ImpTrib>
 
-            <MonId>PES</MonId>
-            <MonCotiz>1.0000</MonCotiz>
-          </FECAEDetRequest>
-        </FeDetReq>
-      </FeCAEReq>
-    </FECAESolicitar>
-    """.strip()
+        <MonId>PES</MonId>
+        <MonCotiz>1.0000</MonCotiz>
+      </FECAEDetRequest>
+    </FeDetReq>
+  </FeCAEReq>
+</FECAESolicitar>
+""".strip()
 
-            resp_xml = self._soap_post_wsfe("http://ar.gov.afip.dif.FEV1/FECAESolicitar", body)
-            tree = ET.fromstring(resp_xml.encode("utf-8"))
+        resp_xml = self._soap_post_wsfe("http://ar.gov.afip.dif.FEV1/FECAESolicitar", body)
+        tree = ET.fromstring(resp_xml.encode("utf-8"))
 
-            resultado = None
-            cae = None
-            cae_vto = None
-            obs_msgs = []
+        resultado = None
+        cae = None
+        cae_vto = None
+        obs_msgs = []
 
-            for el in tree.iter():
-                if el.tag.endswith("Resultado") and resultado is None:
-                    resultado = (el.text or "").strip()
-                if el.tag.endswith("CAE") and cae is None:
-                    cae = (el.text or "").strip()
-                if el.tag.endswith("CAEFchVto") and cae_vto is None:
-                    cae_vto = (el.text or "").strip()
+        for el in tree.iter():
+            if el.tag.endswith("Resultado") and resultado is None:
+                resultado = (el.text or "").strip()
+            if el.tag.endswith("CAE") and cae is None:
+                cae = (el.text or "").strip()
+            if el.tag.endswith("CAEFchVto") and cae_vto is None:
+                cae_vto = (el.text or "").strip()
 
-            code = None
-            msg = None
-            for el in tree.iter():
-                if el.tag.endswith("Code"):
-                    code = (el.text or "").strip()
-                if el.tag.endswith("Msg"):
-                    msg = (el.text or "").strip()
-                    if code or msg:
-                        obs_msgs.append(f"{code}: {msg}".strip(": "))
+        code = None
+        msg = None
+        for el in tree.iter():
+            if el.tag.endswith("Code"):
+                code = (el.text or "").strip()
+            if el.tag.endswith("Msg"):
+                msg = (el.text or "").strip()
+                if code or msg:
+                    obs_msgs.append(f"{code}: {msg}".strip(": "))
 
-            if resultado != "A":
-                extra = " | ".join(obs_msgs) if obs_msgs else resp_xml[:800]
-                raise RuntimeError(f"WSFE rechazó. Resultado={resultado}. {extra}")
+        if resultado != "A":
+            extra = " | ".join(obs_msgs) if obs_msgs else resp_xml[:800]
+            raise RuntimeError(f"WSFE rechazó. Resultado={resultado}. {extra}")
 
-            if not cae or not cae_vto:
-                raise RuntimeError("WSFE aprobó pero no encontré CAE/CAEFchVto en respuesta.")
+        if not cae or not cae_vto:
+            raise RuntimeError("WSFE aprobó pero no encontré CAE/CAEFchVto en respuesta.")
 
-            return AfipResult(cbte_nro=cbte_nro, cae=cae, cae_vto=cae_vto)
-
+        return AfipResult(cbte_nro=cbte_nro, cae=cae, cae_vto=cae_vto)
