@@ -107,11 +107,11 @@ INSERT OR IGNORE INTO license(id, enabled) VALUES (1, 0);
 """
 
 DEFAULT_SETTINGS: dict[str, str] = {
-  "app_name": "LocutorioWEB",
+  "app_name": "FacturaSimple",
   "modo": "PROD",
   "punto_venta": "14",
   "cuit_emisor": "0",
-  "razon_social": "LocutorioWEB",
+  "razon_social": "FacturaSimple",
   "printer_name_contains": "",
   "print_mode": "escpos",  # escpos|gdi
   "openssl_path": "",
