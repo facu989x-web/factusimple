@@ -120,7 +120,7 @@ class PageTicket(QWizardPage):
         lay = QVBoxLayout(self)
         form = QFormLayout()
 
-        self.fant = QLineEdit("LocutorioWEB")
+        self.fant = QLineEdit("FacturaSimple")
         self.inicio = QLineEdit("Inicio actividades: 01/09/2009")
         self.addr = QLineEdit("Av. Directorio 2015")
         self.city = QLineEdit("C.P. 1406 - CABA")

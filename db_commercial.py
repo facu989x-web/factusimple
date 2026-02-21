@@ -228,7 +228,7 @@ def ensure_defaults(db_path: str, seed: dict) -> None:
 
   # ticket templates defaults (mandamiento #1)
   tdef = {
-    "fantasy_name": seed.get("fantasy_name", "LocutorioWEB"),
+    "fantasy_name": seed.get("fantasy_name", "FacturaSimple"),
     "razon_social_line": seed.get("razon_social", ""),
     "cuit_line": f"CUIT {seed.get('cuit_emisor','')}".strip(),
     "condicion_iva_line": seed.get("condicion_iva", "RESP. MONOTRIBUTO"),
