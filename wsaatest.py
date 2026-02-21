@@ -101,8 +101,8 @@ def post_wsaa(url: str, cms_b64: str, variant: str):
     return r.status_code, r.text
 
 def main():
-    cert = r"C:\locutorio_fact\certs\monotributo.crt"
-    key  = r"C:\locutorio_fact\certs\clave.key"
+    cert = r"C:\facturasimple\certs\monotributo.crt"
+    key  = r"C:\facturasimple\certs\clave.key"
 
     # Cambiá esto si querés probar HOMO (ojo: cert de PROD en HOMO suele fallar)
     url = WSAA_PROD

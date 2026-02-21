@@ -10,6 +10,44 @@ from datetime import datetime, date
 from pathlib import Path
 from typing import Any
 
+CBTE_TIPO_FACTURA_B = 6
+CBTE_TIPO_FACTURA_C = 11
+
+def normalize_taxpayer_type(value: str | None) -> str:
+  v = (value or "MONO").strip().upper()
+  return v if v in ("MONO", "RI") else "MONO"
+
+def is_cbte_allowed_for_taxpayer(*, taxpayer_type: str | None, cbte_tipo: int) -> bool:
+  t = normalize_taxpayer_type(taxpayer_type)
+  if t == "MONO":
+    return int(cbte_tipo) == CBTE_TIPO_FACTURA_C
+  return int(cbte_tipo) == CBTE_TIPO_FACTURA_B
+
+def allowed_cbte_types_for_taxpayer(taxpayer_type: str | None) -> list[int]:
+  t = normalize_taxpayer_type(taxpayer_type)
+  if t == "MONO":
+    return [CBTE_TIPO_FACTURA_C]
+  return [CBTE_TIPO_FACTURA_B]
+
+def default_cbte_for_taxpayer(taxpayer_type: str | None) -> int:
+  return allowed_cbte_types_for_taxpayer(taxpayer_type)[0]
+
+def taxpayer_type_label(taxpayer_type: str | None) -> str:
+  t = normalize_taxpayer_type(taxpayer_type)
+  return "Monotributo" if t == "MONO" else "Responsable Inscripto"
+
+def taxpayer_type_lock_text(taxpayer_type: str | None) -> str:
+  t = normalize_taxpayer_type(taxpayer_type)
+  if t == "MONO":
+    return "Régimen MONOTRIBUTO: solo se permite Factura C."
+  return "Régimen RESPONSABLE INSCRIPTO: solo se permite Factura B."
+
+def taxpayer_blocked_cbte_message(taxpayer_type: str | None, cbte_tipo: int) -> str:
+  t = normalize_taxpayer_type(taxpayer_type)
+  cbte = "Factura B" if int(cbte_tipo) == CBTE_TIPO_FACTURA_B else "Factura C"
+  allowed = "Factura C" if t == "MONO" else "Factura B"
+  return f"{cbte} no está permitido para {taxpayer_type_label(t)}. Usá {allowed}. Podés cambiarlo en Configuración > Régimen fiscal."
+
 # ---------------- Schema ----------------
 
 SCHEMA = """
@@ -69,11 +107,11 @@ INSERT OR IGNORE INTO license(id, enabled) VALUES (1, 0);
 """
 
 DEFAULT_SETTINGS: dict[str, str] = {
-  "app_name": "LocutorioWEB",
+  "app_name": "FacturaSimple",
   "modo": "PROD",
   "punto_venta": "14",
   "cuit_emisor": "0",
-  "razon_social": "LocutorioWEB",
+  "razon_social": "FacturaSimple",
   "printer_name_contains": "",
   "print_mode": "escpos",  # escpos|gdi
   "openssl_path": "",
@@ -81,25 +119,35 @@ DEFAULT_SETTINGS: dict[str, str] = {
   "private_key_path": "",
   "private_key_password": "",
   "setup_completed": "0",
+  "taxpayer_type": "MONO",  # MONO|RI
 }
 
 DEFAULT_TICKET_LINES = [
   "{app_name}",
-  "Fecha inicio actividades: 01/09/2009",
-  "Av. Directorio 2015",
-  "C.P. 1406 - CABA",
-  "TEL 147 CABA PROTECCION AL CONSUMIDOR",
+  "",
+  "RAZON SOCIAL",
+  "CUIT: {cuit_emisor}",
+  "",
+  "{cbte_tipo_label}",
+  "",
+  "-------------------------------",
+  "Fecha inicio actividades: 00/00/0000",
+  "DIRECCION C.P 0000 - CABA",
+  "TEL 147 CABA PROTECCION",
+  "AL CONSUMIDOR",
   "-------------------------------",
   "{cbte_tipo_label}",
   "{fecha}",
+  "",
   "PV {pv:04d} NRO {cbte_nro:08d}",
-  "CUIT: {cuit_emisor}",
+  "",
   "Cliente: {cliente_label}",
   "-------------------------------",
   "Cant./Precio Unit.",
   "{items_block}",
   "-------------------------------",
-  "TOTAL: {total:.2f}",
+  "TOTAL: $ {total:.2f}",
+  "",
   "CAE: {cae}",
   "VTO CAE: {cae_vto_fmt}",
   "-------------------------------",
@@ -174,7 +222,7 @@ def get_ticket_lines(db_path: str) -> list[str]:
     con.close()
 
 def save_ticket_lines(db_path: str, text: str) -> None:
-    lines = text.splitlines()
+    lines = _normalize_template_text(text)
 
     con = _connect(db_path)
     try:
@@ -191,6 +239,19 @@ def save_ticket_lines(db_path: str, text: str) -> None:
     finally:
         con.close()
 
+
+def _normalize_template_text(text: str) -> list[str]:
+  raw = text or ""
+
+  # caso normal: usuario edita multilinea en QTextEdit
+  if "\n" in raw or "\r" in raw:
+    return raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+
+  # caso copy/paste desde string con saltos escapados ("\\n")
+  if "\\n" in raw:
+    return raw.split("\\n")
+
+  return [raw]
 
 # ---------------- Invoices ----------------
 

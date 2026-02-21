@@ -1,4 +1,4 @@
-Patch comercial (Opción D) - Locutorio Facturación
+Patch comercial (Opción D) - FacturaSimple Facturación
 
 Archivos incluidos:
 - app.py: UI con tabs Venta / Comprobantes día / Comprobantes rango, F4 facturar, doble-click reimprimir, export Excel.
