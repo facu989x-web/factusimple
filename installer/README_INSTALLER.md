@@ -21,7 +21,7 @@ Salida:
 ```bash
 python installer/post_install_config.py \
   --install-dir "C:\\Program Files (x86)\\FacturaSimple" \
-  --db-path "data/locutorio.sqlite" \
+  --db-path "data/facturasimple.sqlite" \
   --print-mode gdi
 ```
 

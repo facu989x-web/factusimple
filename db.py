@@ -107,11 +107,11 @@ INSERT OR IGNORE INTO license(id, enabled) VALUES (1, 0);
 """
 
 DEFAULT_SETTINGS: dict[str, str] = {
-  "app_name": "LocutorioWEB",
+  "app_name": "FacturaSimple",
   "modo": "PROD",
   "punto_venta": "14",
   "cuit_emisor": "0",
-  "razon_social": "LocutorioWEB",
+  "razon_social": "FacturaSimple",
   "printer_name_contains": "",
   "print_mode": "escpos",  # escpos|gdi
   "openssl_path": "",
@@ -124,21 +124,30 @@ DEFAULT_SETTINGS: dict[str, str] = {
 
 DEFAULT_TICKET_LINES = [
   "{app_name}",
-  "Fecha inicio actividades: 01/09/2009",
-  "Av. Directorio 2015",
-  "C.P. 1406 - CABA",
-  "TEL 147 CABA PROTECCION AL CONSUMIDOR",
+  "",
+  "RAZON SOCIAL",
+  "CUIT: {cuit_emisor}",
+  "",
+  "{cbte_tipo_label}",
+  "",
+  "-------------------------------",
+  "Fecha inicio actividades: 00/00/0000",
+  "DIRECCION C.P 0000 - CABA",
+  "TEL 147 CABA PROTECCION",
+  "AL CONSUMIDOR",
   "-------------------------------",
   "{cbte_tipo_label}",
   "{fecha}",
+  "",
   "PV {pv:04d} NRO {cbte_nro:08d}",
-  "CUIT: {cuit_emisor}",
+  "",
   "Cliente: {cliente_label}",
   "-------------------------------",
   "Cant./Precio Unit.",
   "{items_block}",
   "-------------------------------",
-  "TOTAL: {total:.2f}",
+  "TOTAL: $ {total:.2f}",
+  "",
   "CAE: {cae}",
   "VTO CAE: {cae_vto_fmt}",
   "-------------------------------",
@@ -213,7 +222,7 @@ def get_ticket_lines(db_path: str) -> list[str]:
     con.close()
 
 def save_ticket_lines(db_path: str, text: str) -> None:
-    lines = text.splitlines()
+    lines = _normalize_template_text(text)
 
     con = _connect(db_path)
     try:
@@ -230,6 +239,19 @@ def save_ticket_lines(db_path: str, text: str) -> None:
     finally:
         con.close()
 
+
+def _normalize_template_text(text: str) -> list[str]:
+  raw = text or ""
+
+  # caso normal: usuario edita multilinea en QTextEdit
+  if "\n" in raw or "\r" in raw:
+    return raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+
+  # caso copy/paste desde string con saltos escapados ("\\n")
+  if "\\n" in raw:
+    return raw.split("\\n")
+
+  return [raw]
 
 # ---------------- Invoices ----------------
 

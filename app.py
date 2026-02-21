@@ -34,7 +34,7 @@ def load_boot_settings() -> dict:
     """
     p = Path("settings.json")
     if not p.exists():
-        p.write_text(json.dumps({"db_path": "data/locutorio.sqlite"}, indent=2), encoding="utf-8")
+        p.write_text(json.dumps({"db_path": "data/facturasimple.sqlite"}, indent=2), encoding="utf-8")
     return json.loads(p.read_text(encoding="utf-8"))
 
 def client_label(doc_tipo: int, doc_nro: str) -> str:
@@ -123,8 +123,8 @@ class SetupWizard(QWidget):
         form = QFormLayout()
         lay.addLayout(form)
 
-        self.ed_app = QLineEdit(get_setting(db_path, "app_name", "LocutorioWEB"))
-        self.ed_rs = QLineEdit(get_setting(db_path, "razon_social", "LocutorioWEB"))
+        self.ed_app = QLineEdit(get_setting(db_path, "app_name", "FacturaSimple"))
+        self.ed_rs = QLineEdit(get_setting(db_path, "razon_social", "FacturaSimple"))
         self.ed_cuit = QLineEdit(get_setting(db_path, "cuit_emisor", "0"))
         self.ed_pv = QLineEdit(get_setting(db_path, "punto_venta", "14"))
 
@@ -661,8 +661,8 @@ class MainWindow(QWidget):
         form = QFormLayout()
         lay.addLayout(form)
 
-        self.cfg_app = QLineEdit(get_setting(self.db_path, "app_name", "LocutorioWEB"))
-        self.cfg_rs = QLineEdit(get_setting(self.db_path, "razon_social", "LocutorioWEB"))
+        self.cfg_app = QLineEdit(get_setting(self.db_path, "app_name", "FacturaSimple"))
+        self.cfg_rs = QLineEdit(get_setting(self.db_path, "razon_social", "FacturaSimple"))
         self.cfg_cuit = QLineEdit(get_setting(self.db_path, "cuit_emisor", "0"))
         self.cfg_pv = QLineEdit(get_setting(self.db_path, "punto_venta", "14"))
 
@@ -744,7 +744,7 @@ class MainWindow(QWidget):
 
         QMessageBox.information(self, "OK", "Configuración guardada en la base de datos.")
         self.settings = get_all_settings(self.db_path)
-        self.setWindowTitle(f"{self.settings.get('app_name','Locutorio')}")
+        self.setWindowTitle(f"{self.settings.get('app_name','FacturaSimple')}")
         self._apply_cbte_lock()
 
     def test_print(self):
