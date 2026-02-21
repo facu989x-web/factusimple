@@ -13,7 +13,9 @@ from afip_service import AfipService, CBTE_TIPO_FACTURA_C, CBTE_TIPO_FACTURA_B
 from db import (
     init_db, insert_invoice, list_invoices, daily_summary, range_summary,
     get_invoice_with_items, get_all_settings, set_setting, get_setting,
-    get_ticket_lines, save_ticket_lines, validate_license
+    get_ticket_lines, save_ticket_lines, validate_license,
+    normalize_taxpayer_type, is_cbte_allowed_for_taxpayer, allowed_cbte_types_for_taxpayer,
+    default_cbte_for_taxpayer, taxpayer_type_lock_text, taxpayer_blocked_cbte_message
 )
 from ticket_format import build_ticket_text
 from printer import TicketPrinter
@@ -32,7 +34,7 @@ def load_boot_settings() -> dict:
     """
     p = Path("settings.json")
     if not p.exists():
-        p.write_text(json.dumps({"db_path": "data/locutorio.sqlite"}, indent=2), encoding="utf-8")
+        p.write_text(json.dumps({"db_path": "data/facturasimple.sqlite"}, indent=2), encoding="utf-8")
     return json.loads(p.read_text(encoding="utf-8"))
 
 def client_label(doc_tipo: int, doc_nro: str) -> str:
@@ -48,6 +50,7 @@ def print_ticket_from_data(*, db_path: str, inv: dict, items: list[dict]) -> Non
     settings = get_all_settings(db_path)
 
     pv = int(inv["pv"])
+    cbte_tipo = int(inv["cbte_tipo"])
     cbte_nro = int(inv["cbte_nro"])
     cae = str(inv["cae"])
     cae_vto = str(inv["cae_vto"])
@@ -60,7 +63,7 @@ def print_ticket_from_data(*, db_path: str, inv: dict, items: list[dict]) -> Non
 
     ticket_text = build_ticket_text(
         db_path=db_path,
-        cbte_label = "FACTURA B" if cbte_tipo == CBTE_TIPO_FACTURA_B else "FACTURA C",
+        cbte_tipo_label="FACTURA B" if cbte_tipo == CBTE_TIPO_FACTURA_B else "FACTURA C",
         pv=pv,
         cbte_nro=cbte_nro,
         fecha=now,
@@ -120,8 +123,8 @@ class SetupWizard(QWidget):
         form = QFormLayout()
         lay.addLayout(form)
 
-        self.ed_app = QLineEdit(get_setting(db_path, "app_name", "LocutorioWEB"))
-        self.ed_rs = QLineEdit(get_setting(db_path, "razon_social", "LocutorioWEB"))
+        self.ed_app = QLineEdit(get_setting(db_path, "app_name", "FacturaSimple"))
+        self.ed_rs = QLineEdit(get_setting(db_path, "razon_social", "FacturaSimple"))
         self.ed_cuit = QLineEdit(get_setting(db_path, "cuit_emisor", "0"))
         self.ed_pv = QLineEdit(get_setting(db_path, "punto_venta", "14"))
 
@@ -131,6 +134,12 @@ class SetupWizard(QWidget):
         cur_modo = (get_setting(db_path, "modo", "PROD") or "PROD").strip().upper()
         idx = 0 if cur_modo == "PROD" else 1
         self.cmb_modo.setCurrentIndex(idx)
+
+        self.cmb_taxpayer = QComboBox()
+        self.cmb_taxpayer.addItem("Monotributo (solo Factura C)", "MONO")
+        self.cmb_taxpayer.addItem("Responsable Inscripto (solo Factura B)", "RI")
+        cur_taxpayer = (get_setting(db_path, "taxpayer_type", "MONO") or "MONO").strip().upper()
+        self.cmb_taxpayer.setCurrentIndex(0 if cur_taxpayer != "RI" else 1)
 
         self.ed_printer_contains = QLineEdit(get_setting(db_path, "printer_name_contains", ""))
         self.cmb_print_mode = QComboBox()
@@ -150,6 +159,7 @@ class SetupWizard(QWidget):
         form.addRow("CUIT emisor:", self.ed_cuit)
         form.addRow("Punto de venta:", self.ed_pv)
         form.addRow("Modo AFIP:", self.cmb_modo)
+        form.addRow("Régimen fiscal:", self.cmb_taxpayer)
         form.addRow("", QLabel("• Producción = emite comprobantes reales. Homologación = pruebas."))
         form.addRow("Impresora (opcional):", self.ed_printer_contains)
         form.addRow("", QLabel("• Dejá vacío para usar la impresora predeterminada de Windows."))
@@ -177,6 +187,7 @@ class SetupWizard(QWidget):
         set_setting(self.db_path, "cuit_emisor", self.ed_cuit.text().strip())
         set_setting(self.db_path, "punto_venta", self.ed_pv.text().strip())
         set_setting(self.db_path, "modo", str(self.cmb_modo.currentData()).strip())
+        set_setting(self.db_path, "taxpayer_type", str(self.cmb_taxpayer.currentData()).strip())
         set_setting(self.db_path, "printer_name_contains", self.ed_printer_contains.text().strip())
         set_setting(self.db_path, "print_mode", str(self.cmb_print_mode.currentData()).strip())
         set_setting(self.db_path, "openssl_path", self.ed_openssl.text().strip())
@@ -202,11 +213,12 @@ class MainWindow(QWidget):
         # runonce
         if get_setting(self.db_path, "setup_completed", "0") != "1":
             wiz = SetupWizard(self.db_path)
+            wiz.destroyed.connect(lambda *_: self._refresh_after_setup())
             wiz.show()
             # seguimos igual; el usuario puede configurar luego en la pestaña
 
         self.settings = get_all_settings(self.db_path)
-        self.setWindowTitle(f"{self.settings.get('app_name','Factura')} - Factura C")
+        self.setWindowTitle(f"{self.settings.get('app_name','Factura')}")
 
         self.afip = AfipService(
             modo=self.settings.get("modo", "PROD"),
@@ -229,6 +241,32 @@ class MainWindow(QWidget):
 
         # Shortcut F4 => facturar+imprimir
         QShortcut(QKeySequence("F4"), self, activated=self.on_facturar)
+
+    def _is_cbte_allowed(self, cbte_tipo: int) -> bool:
+        taxpayer_type = get_setting(self.db_path, "taxpayer_type", "MONO")
+        return is_cbte_allowed_for_taxpayer(taxpayer_type=taxpayer_type, cbte_tipo=cbte_tipo)
+
+    def _apply_cbte_lock(self) -> None:
+        taxpayer_type = normalize_taxpayer_type(get_setting(self.db_path, "taxpayer_type", "MONO"))
+        allowed = set(allowed_cbte_types_for_taxpayer(taxpayer_type))
+
+        self.cbte_combo.blockSignals(True)
+        try:
+            self.cbte_combo.clear()
+            if CBTE_TIPO_FACTURA_C in allowed:
+                self.cbte_combo.addItem("Factura C (Monotributo / no discrimina IVA)", CBTE_TIPO_FACTURA_C)
+            if CBTE_TIPO_FACTURA_B in allowed:
+                self.cbte_combo.addItem("Factura B (RI / venta a consumidor)", CBTE_TIPO_FACTURA_B)
+
+            if hasattr(self, "cbte_lock_label"):
+                self.cbte_lock_label.setText(taxpayer_type_lock_text(taxpayer_type))
+        finally:
+            self.cbte_combo.blockSignals(False)
+
+    def _refresh_after_setup(self) -> None:
+        self.settings = get_all_settings(self.db_path)
+        self.setWindowTitle(f"{self.settings.get('app_name','Factura')}")
+        self._apply_cbte_lock()
 
     # ---------------- Tab Venta ----------------
     def _build_tab_venta(self):
@@ -255,21 +293,21 @@ class MainWindow(QWidget):
         tipo_row.addWidget(QLabel("Tipo de comprobante:"))
 
         self.cbte_combo = QComboBox()
-        # Mostrar texto “humano”
-        self.cbte_combo.addItem("Factura C (Monotributo / no discrimina IVA)", CBTE_TIPO_FACTURA_C)
-        self.cbte_combo.addItem("Factura B (RI / venta a consumidor)", CBTE_TIPO_FACTURA_B)
-
-        # default: C (podés cambiarlo si guardás en DB)
-        self.cbte_combo.setCurrentIndex(0)
-
         tipo_row.addWidget(self.cbte_combo, 1)
+
+        self.cbte_lock_label = QLabel("")
+        self.cbte_lock_label.setStyleSheet("color: #d8b24d;")
+        self.cbte_lock_label.setWordWrap(True)
 
         hint = QLabel("• C: sin IVA.  • B: IVA incluido (por defecto 21%).")
         hint.setStyleSheet("color: #b0b0b0;")
         hint.setWordWrap(True)
 
         lay.addLayout(tipo_row)
+        lay.addWidget(self.cbte_lock_label)
         lay.addWidget(hint)
+
+        self._apply_cbte_lock()
 
         doc_row.addWidget(self.rb_cf)
         doc_row.addWidget(self.rb_doc)
@@ -392,6 +430,9 @@ class MainWindow(QWidget):
                 doc_nro = doc
                 doc_tipo = DOC_TIPO_DNI if len(doc) == 8 else DOC_TIPO_CUIT
             cbte_tipo = int(self.cbte_combo.currentData())
+            if not self._is_cbte_allowed(cbte_tipo):
+                QMessageBox.warning(self, "Tipo de comprobante bloqueado", taxpayer_blocked_cbte_message(get_setting(self.db_path, "taxpayer_type", "MONO"), cbte_tipo))
+                return
             # Emitir CAE
             #res = self.afip.emitir_factura_c(doc_tipo=doc_tipo, doc_nro=doc_nro, total=total, items=items)
 
@@ -406,7 +447,7 @@ class MainWindow(QWidget):
             inv_id = insert_invoice(
                 self.db_path,
                 pv=int(self.settings.get("punto_venta", "14") or 14),
-                cbte_tipo=CBTE_TIPO_FACTURA_C,
+                cbte_tipo=cbte_tipo,
                 cbte_nro=res.cbte_nro,
                 doc_tipo=doc_tipo,
                 doc_nro=doc_nro,
@@ -620,8 +661,8 @@ class MainWindow(QWidget):
         form = QFormLayout()
         lay.addLayout(form)
 
-        self.cfg_app = QLineEdit(get_setting(self.db_path, "app_name", "LocutorioWEB"))
-        self.cfg_rs = QLineEdit(get_setting(self.db_path, "razon_social", "LocutorioWEB"))
+        self.cfg_app = QLineEdit(get_setting(self.db_path, "app_name", "FacturaSimple"))
+        self.cfg_rs = QLineEdit(get_setting(self.db_path, "razon_social", "FacturaSimple"))
         self.cfg_cuit = QLineEdit(get_setting(self.db_path, "cuit_emisor", "0"))
         self.cfg_pv = QLineEdit(get_setting(self.db_path, "punto_venta", "14"))
 
@@ -630,6 +671,12 @@ class MainWindow(QWidget):
         self.cfg_modo.addItem("Homologación (pruebas)", "HOMO")
         cur_modo = (get_setting(self.db_path, "modo", "PROD") or "PROD").strip().upper()
         self.cfg_modo.setCurrentIndex(0 if cur_modo == "PROD" else 1)
+
+        self.cfg_taxpayer = QComboBox()
+        self.cfg_taxpayer.addItem("Monotributo (solo Factura C)", "MONO")
+        self.cfg_taxpayer.addItem("Responsable Inscripto (solo Factura B)", "RI")
+        cur_taxpayer = (get_setting(self.db_path, "taxpayer_type", "MONO") or "MONO").strip().upper()
+        self.cfg_taxpayer.setCurrentIndex(0 if cur_taxpayer != "RI" else 1)
 
         self.cfg_printer_contains = QLineEdit(get_setting(self.db_path, "printer_name_contains", ""))
         self.cfg_print_mode = QComboBox()
@@ -649,7 +696,9 @@ class MainWindow(QWidget):
         form.addRow("CUIT emisor:", self.cfg_cuit)
         form.addRow("Punto de venta:", self.cfg_pv)
         form.addRow("Modo AFIP:", self.cfg_modo)
+        form.addRow("Régimen fiscal:", self.cfg_taxpayer)
         form.addRow("", QLabel("• Producción = real. Homologación = pruebas."))
+        form.addRow("", QLabel("• Monotributo habilita Factura C. Responsable Inscripto habilita Factura B."))
         form.addRow("Impresora (opcional):", self.cfg_printer_contains)
         form.addRow("", QLabel("• Vacío = impresora predeterminada."))
         form.addRow("Tipo de impresión:", self.cfg_print_mode)
@@ -682,6 +731,7 @@ class MainWindow(QWidget):
         set_setting(self.db_path, "cuit_emisor", self.cfg_cuit.text().strip())
         set_setting(self.db_path, "punto_venta", self.cfg_pv.text().strip())
         set_setting(self.db_path, "modo", str(self.cfg_modo.currentData()).strip())
+        set_setting(self.db_path, "taxpayer_type", str(self.cfg_taxpayer.currentData()).strip())
         set_setting(self.db_path, "printer_name_contains", self.cfg_printer_contains.text().strip())
         set_setting(self.db_path, "print_mode", str(self.cfg_print_mode.currentData()).strip())
         set_setting(self.db_path, "openssl_path", self.cfg_openssl.text().strip())
@@ -694,13 +744,15 @@ class MainWindow(QWidget):
 
         QMessageBox.information(self, "OK", "Configuración guardada en la base de datos.")
         self.settings = get_all_settings(self.db_path)
-        self.setWindowTitle(f"{self.settings.get('app_name','Locutorio')} - Factura C")
+        self.setWindowTitle(f"{self.settings.get('app_name','FacturaSimple')}")
+        self._apply_cbte_lock()
 
     def test_print(self):
         try:
             # ticket dummy
             inv = {
                 "pv": int(get_setting(self.db_path, "punto_venta", "14") or 14),
+                "cbte_tipo": default_cbte_for_taxpayer(get_setting(self.db_path, "taxpayer_type", "MONO")),
                 "cbte_nro": 99999999,
                 "doc_tipo": DOC_TIPO_SIN_DOC,
                 "doc_nro": "0",
