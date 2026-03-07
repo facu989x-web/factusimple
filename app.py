@@ -489,6 +489,9 @@ class MainWindow(QWidget):
 
         self.btn_refresh = QPushButton("Actualizar")
         top.addWidget(self.btn_refresh)
+
+        self.chk_all_invoices = QCheckBox("Ver todos")
+        top.addWidget(self.chk_all_invoices)
         top.addStretch(1)
 
         self.sum_label = QLabel("Resumen: -")
@@ -507,16 +510,21 @@ class MainWindow(QWidget):
 
         self.btn_refresh.clicked.connect(self.refresh_invoices)
         self.date_pick.dateChanged.connect(lambda _: self.refresh_invoices())
+        self.chk_all_invoices.toggled.connect(lambda _: self.refresh_invoices())
         self.inv_table.cellDoubleClicked.connect(self.on_reprint_clicked)
 
         self.refresh_invoices()
 
     def refresh_invoices(self):
         d = self.date_pick.date().toString("yyyy-MM-dd")
-        rows = list_invoices(self.db_path, date_yyyy_mm_dd=d, limit=500)
-        summ = daily_summary(self.db_path, date_yyyy_mm_dd=d)
-
-        self.sum_label.setText(f"Resumen {d}: {summ['cant']} comprobantes | Total: {summ['total']:.2f}")
+        if self.chk_all_invoices.isChecked():
+            rows = list_invoices(self.db_path, limit=5000)
+            total = sum(float(r["imp_total"]) for r in rows)
+            self.sum_label.setText(f"Resumen general: {len(rows)} comprobantes | Total: {total:.2f}")
+        else:
+            rows = list_invoices(self.db_path, date_yyyy_mm_dd=d, limit=500)
+            summ = daily_summary(self.db_path, date_yyyy_mm_dd=d)
+            self.sum_label.setText(f"Resumen {d}: {summ['cant']} comprobantes | Total: {summ['total']:.2f}")
 
         self.inv_table.setRowCount(0)
         for r in rows:
@@ -656,6 +664,11 @@ class MainWindow(QWidget):
         cfg = QWidget()
         self.tabs.addTab(cfg, "Configuración")
         lay = QVBoxLayout(cfg)
+
+        db_info = QLabel(f"Base activa: {self.db_path}")
+        db_info.setWordWrap(True)
+        db_info.setStyleSheet("color: #9aa0a6;")
+        lay.addWidget(db_info)
 
         # Settings form (DB-backed)
         form = QFormLayout()

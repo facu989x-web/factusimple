@@ -279,6 +279,18 @@ def insert_invoice(db_path: str, *, pv: int, cbte_tipo: int, cbte_nro: int,
   finally:
     con.close()
 
+def _created_at_norm_sql(field: str = "created_at") -> str:
+  return f"""
+    CASE
+      WHEN substr({field},3,1)='/' AND substr({field},6,1)='/'
+        THEN substr({field},7,4)||'-'||substr({field},4,2)||'-'||substr({field},1,2)||substr({field},11)
+      WHEN instr({field}, 'T') > 0
+        THEN replace({field}, 'T', ' ')
+      ELSE {field}
+    END
+  """
+
+
 def list_invoices(db_path: str, *, date_yyyy_mm_dd: str | None = None,
                   from_yyyy_mm_dd: str | None = None, to_yyyy_mm_dd: str | None = None,
                   limit: int = 500) -> list[dict]:
@@ -286,17 +298,7 @@ def list_invoices(db_path: str, *, date_yyyy_mm_dd: str | None = None,
   try:
     cur = con.cursor()
 
-    # Compat: algunas DB legacy guardaban created_at como DD/MM/YYYY HH:MM:SS.
-    # Normalizamos en SQL para que filtros de fecha/listados sigan funcionando.
-    created_at_norm = """
-      CASE
-        WHEN substr(created_at,3,1)='/' AND substr(created_at,6,1)='/'
-          THEN substr(created_at,7,4)||'-'||substr(created_at,4,2)||'-'||substr(created_at,1,2)||substr(created_at,11)
-        WHEN instr(created_at, 'T') > 0
-          THEN replace(created_at, 'T', ' ')
-        ELSE created_at
-      END
-    """
+    created_at_norm = _created_at_norm_sql("created_at")
 
     where = []
     params: list[Any] = []
@@ -328,27 +330,12 @@ def daily_summary(db_path: str, *, date_yyyy_mm_dd: str) -> dict:
     cur = con.cursor()
     d0 = f"{date_yyyy_mm_dd} 00:00:00"
     d1 = f"{date_yyyy_mm_dd} 23:59:59"
+    created_at_norm = _created_at_norm_sql("created_at")
     cur.execute(
-      """
+      f"""
       SELECT COUNT(*) as cant, COALESCE(SUM(imp_total), 0) as total
       FROM invoices
-      WHERE (
-        CASE
-          WHEN substr(created_at,3,1)='/' AND substr(created_at,6,1)='/'
-            THEN substr(created_at,7,4)||'-'||substr(created_at,4,2)||'-'||substr(created_at,1,2)||substr(created_at,11)
-          WHEN instr(created_at, 'T') > 0
-            THEN replace(created_at, 'T', ' ')
-          ELSE created_at
-        END
-      ) >= ? AND (
-        CASE
-          WHEN substr(created_at,3,1)='/' AND substr(created_at,6,1)='/'
-            THEN substr(created_at,7,4)||'-'||substr(created_at,4,2)||'-'||substr(created_at,1,2)||substr(created_at,11)
-          WHEN instr(created_at, 'T') > 0
-            THEN replace(created_at, 'T', ' ')
-          ELSE created_at
-        END
-      ) <= ?
+      WHERE ({created_at_norm}) >= ? AND ({created_at_norm}) <= ?
       """,
       (d0, d1),
     )
@@ -363,27 +350,12 @@ def range_summary(db_path: str, *, from_yyyy_mm_dd: str, to_yyyy_mm_dd: str) -> 
     cur = con.cursor()
     d0 = f"{from_yyyy_mm_dd} 00:00:00"
     d1 = f"{to_yyyy_mm_dd} 23:59:59"
+    created_at_norm = _created_at_norm_sql("created_at")
     cur.execute(
-      """
+      f"""
       SELECT COUNT(*) as cant, COALESCE(SUM(imp_total), 0) as total
       FROM invoices
-      WHERE (
-        CASE
-          WHEN substr(created_at,3,1)='/' AND substr(created_at,6,1)='/'
-            THEN substr(created_at,7,4)||'-'||substr(created_at,4,2)||'-'||substr(created_at,1,2)||substr(created_at,11)
-          WHEN instr(created_at, 'T') > 0
-            THEN replace(created_at, 'T', ' ')
-          ELSE created_at
-        END
-      ) >= ? AND (
-        CASE
-          WHEN substr(created_at,3,1)='/' AND substr(created_at,6,1)='/'
-            THEN substr(created_at,7,4)||'-'||substr(created_at,4,2)||'-'||substr(created_at,1,2)||substr(created_at,11)
-          WHEN instr(created_at, 'T') > 0
-            THEN replace(created_at, 'T', ' ')
-          ELSE created_at
-        END
-      ) <= ?
+      WHERE ({created_at_norm}) >= ? AND ({created_at_norm}) <= ?
       """,
       (d0, d1),
     )

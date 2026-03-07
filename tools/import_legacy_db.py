@@ -19,6 +19,19 @@ def _table_exists(con: sqlite3.Connection, table: str) -> bool:
     return cur.fetchone() is not None
 
 
+
+
+def _normalize_created_at(value: str | None) -> str:
+    v = (value or "").strip()
+    if not v:
+        return ""
+    if len(v) >= 19 and v[2] == "/" and v[5] == "/":
+        # DD/MM/YYYY HH:MM:SS -> YYYY-MM-DD HH:MM:SS
+        return f"{v[6:10]}-{v[3:5]}-{v[0:2]}{v[10:]}"
+    if "T" in v:
+        return v.replace("T", " ")
+    return v
+
 def import_invoices(*, src_db: str, dst_db: str) -> dict:
     init_db(dst_db)
 
@@ -27,6 +40,7 @@ def import_invoices(*, src_db: str, dst_db: str) -> dict:
 
     imported = 0
     skipped = 0
+    items_imported = 0
 
     try:
         s = src.cursor()
@@ -57,7 +71,7 @@ def import_invoices(*, src_db: str, dst_db: str) -> dict:
                 VALUES(?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
-                    inv["created_at"],
+                    _normalize_created_at(inv["created_at"]),
                     inv["pv"],
                     inv["cbte_tipo"],
                     inv["cbte_nro"],
@@ -80,6 +94,7 @@ def import_invoices(*, src_db: str, dst_db: str) -> dict:
                     "INSERT INTO invoice_items(invoice_id,item_name,qty,price,subtotal) VALUES(?,?,?,?,?)",
                     (new_id, it["item_name"], it["qty"], it["price"], it["subtotal"]),
                 )
+                items_imported += 1
 
             imported += 1
 
@@ -88,7 +103,7 @@ def import_invoices(*, src_db: str, dst_db: str) -> dict:
         src.close()
         dst.close()
 
-    return {"imported": imported, "skipped": skipped}
+    return {"imported": imported, "skipped": skipped, "items_imported": items_imported}
 
 
 def import_settings_best_effort(*, src_db: str, dst_db: str) -> int:
@@ -143,6 +158,7 @@ def main() -> None:
     result = import_invoices(src_db=str(src), dst_db=str(dst))
     print(f"[OK] Comprobantes importados: {result['imported']}")
     print(f"[OK] Comprobantes omitidos (duplicados): {result['skipped']}")
+    print(f"[OK] Ítems importados: {result['items_imported']}")
 
     if args.import_settings:
         moved = import_settings_best_effort(src_db=str(src), dst_db=str(dst))

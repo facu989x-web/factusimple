@@ -89,6 +89,27 @@ class ImportLegacyDbTest(unittest.TestCase):
             self.assertEqual(day_sum["cant"], 1)
             self.assertEqual(range_sum["cant"], 1)
 
+    def test_import_normalizes_legacy_created_at_to_iso(self):
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "ventas.db"
+            dst = Path(td) / "facturasimple.sqlite"
+            self._make_legacy(src)
+
+            con = sqlite3.connect(src)
+            con.execute("UPDATE invoices SET created_at=?", ("01/01/2026 10:00:00",))
+            con.commit()
+            con.close()
+
+            init_db(str(dst))
+            res = import_invoices(src_db=str(src), dst_db=str(dst))
+            self.assertEqual(res["imported"], 1)
+            self.assertEqual(res["items_imported"], 1)
+
+            con2 = sqlite3.connect(dst)
+            created_at = con2.execute("SELECT created_at FROM invoices LIMIT 1").fetchone()[0]
+            con2.close()
+            self.assertEqual(created_at, "2026-01-01 10:00:00")
+
 
 if __name__ == "__main__":
     unittest.main()
